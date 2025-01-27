@@ -50,9 +50,10 @@ public class MQTTHAProducerService implements IMQTTProducerService {
             MemoryPersistence persistence = new MemoryPersistence();
             MqttConnectionOptions connOpts = new MqttConnectionOptions();
             connOpts.setCleanStart(false);
+            connOpts.setUserName(username);
+            connOpts.setPassword(password.getBytes());
             client = new MqttAsyncClient(broker, clientId, persistence);
             LOG.info("Connecting to broker: " + broker);
-            //IMqttToken token = 
             client.connect(connOpts).waitForCompletion();
             //token.waitForCompletion();
             LOG.info("Connected MQTT producer at {} to topic {}", broker, topic);
@@ -79,9 +80,6 @@ public class MQTTHAProducerService implements IMQTTProducerService {
     public void sendMessage(final String content) throws IOException {
         try {
             LOG.debug("Publishing message: "+content);
-            //MqttMessage message = new MqttMessage(content.getBytes());
-            //message.setQos(qos);
-            //IMqttToken token = client.publish(topic, message);
             client.publish(topic, content.getBytes(), qos, true).waitForCompletion();
             //token.waitForCompletion();
             LOG.debug("Disconnected");
@@ -169,7 +167,6 @@ public class MQTTHAProducerService implements IMQTTProducerService {
             System.out.println("excep "+me);
             me.printStackTrace();
         }
-*/
     }
     */
 
