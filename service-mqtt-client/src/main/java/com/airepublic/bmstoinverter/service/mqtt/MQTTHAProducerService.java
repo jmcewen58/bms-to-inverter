@@ -11,15 +11,14 @@
 package com.airepublic.bmstoinverter.service.mqtt;
 
 import java.io.IOException;
+import java.time.Instant;
+import java.time.Duration;
 
 import org.eclipse.paho.mqttv5.client.MqttAsyncClient;
 import org.eclipse.paho.mqttv5.client.MqttConnectionOptions;
 import org.eclipse.paho.mqttv5.client.IMqttAsyncClient;
-//import org.eclipse.paho.mqttv5.client.IMqttToken;
 import org.eclipse.paho.mqttv5.client.persist.MemoryPersistence;
-//import org.eclipse.paho.mqttv5.common.MqttException;
-//import org.eclipse.paho.mqttv5.common.MqttMessage;
-//import org.eclipse.paho.mqttv5.common.packet.MqttProperties;
+import org.eclipse.paho.mqttv5.common.MqttException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -30,6 +29,8 @@ import com.airepublic.bmstoinverter.core.service.IMQTTProducerService;
  */
 public class MQTTHAProducerService implements IMQTTProducerService {
     private final static Logger LOG = LoggerFactory.getLogger(MQTTHAProducerService.class);
+    private static String lastMessage = null;
+    private static Instant firstMessageTime = Instant.now();
     private boolean running = false;
     private IMqttAsyncClient client = null;
     private String topic;
@@ -55,13 +56,12 @@ public class MQTTHAProducerService implements IMQTTProducerService {
             client = new MqttAsyncClient(broker, clientId, persistence);
             LOG.info("Connecting to broker: " + broker);
             client.connect(connOpts).waitForCompletion();
-            //token.waitForCompletion();
             LOG.info("Connected MQTT producer at {} to topic {}", broker, topic);
             running = true;
             return this;
         } catch (final Exception e) {
             LOG.error("Error starting MQTT producer service!", e);
-            //if (e instanceof MqttException) logErrorInfo((MqttException)e);
+            if (e instanceof MqttException) logErrorInfo((MqttException)e);
             try {
                 close();
             } catch (final Exception e1) {
@@ -79,12 +79,19 @@ public class MQTTHAProducerService implements IMQTTProducerService {
     @Override
     public void sendMessage(final String content) throws IOException {
         try {
-            LOG.debug("Publishing message: "+content);
-            client.publish(topic, content.getBytes(), qos, true).waitForCompletion();
-            //token.waitForCompletion();
-            LOG.debug("Disconnected");
+            long beat = Duration.between(firstMessageTime, Instant.now()).getSeconds();
+            if (lastMessage==null) lastMessage = content; // we're going to skip the first message as it has invalid SOC.
+            if (!content.equals(lastMessage) || beat>=30 ) {
+                LOG.debug("Publishing message: "+content);
+                client.publish(topic, content.getBytes(), qos, true).waitForCompletion();
+                if (beat>=30) firstMessageTime = Instant.now();
+                LOG.debug("Disconnected");
+            } else {
+                LOG.debug("Skipping send.");
+            }
+            lastMessage = content;
         } catch (final Exception e) {
-            //if (e instanceof MqttException) logErrorInfo((MqttException)e);
+            if (e instanceof MqttException) logErrorInfo((MqttException)e);
             throw new IOException("Could not send MQTT message on topic " + topic, e);
         }
     }
@@ -96,7 +103,7 @@ public class MQTTHAProducerService implements IMQTTProducerService {
             client.close();
             running = false;
         } catch (final Exception e) {
-            //if (e instanceof MqttException) logErrorInfo((MqttException)e);
+            if (e instanceof MqttException) logErrorInfo((MqttException)e);
             throw new RuntimeException("Failed to stop MQTT producer!", e);
         }
     }
@@ -112,22 +119,21 @@ public class MQTTHAProducerService implements IMQTTProducerService {
         }
     }
 
-    /*
     private void logErrorInfo(MqttException me) {
-        LOG.debug("reason "+me.getReasonCode());
-        LOG.debug("msg "+me.getMessage());
-        LOG.debug("loc "+me.getLocalizedMessage());
-        LOG.debug("cause "+me.getCause());
-        LOG.debug("excep "+me);
+        LOG.error("reason "+me.getReasonCode());
+        LOG.error("msg "+me.getMessage());
+        LOG.error("loc "+me.getLocalizedMessage());
+        LOG.error("cause "+me.getCause());
+        LOG.error("excep "+me);
     }
-        */
 
     /**
-     * Main method to test the producer.
+     * Main method to test the producer.  Note that this won't likely work unless the artemis broker is listening on 1833 and
+     * has MQTT V5 protocol enabled.
      *
      * @param args none
      */
-    /*
+
      public static void main(final String[] args) {
 
         String topic        = "bmstoinverter";
@@ -140,34 +146,28 @@ public class MQTTHAProducerService implements IMQTTProducerService {
         try {
             MqttConnectionOptions connOpts = new MqttConnectionOptions();
             connOpts.setCleanStart(false);
-            MqttAsyncClient sampleClient = new MqttAsyncClient(broker, clientId, persistence);
+            MqttAsyncClient client = new MqttAsyncClient(broker, clientId, persistence);
             System.out.println("Connecting to broker: " + broker);
-            IMqttToken token = sampleClient.connect(connOpts);
-            token.waitForCompletion();
+            client.connect(connOpts).waitForCompletion();
             System.out.println("Connected");
             System.out.println("Publishing message: "+content);
-            MqttMessage message = new MqttMessage(content.getBytes());
-            message.setQos(qos);
-            token = sampleClient.publish(topic, message);
-            token.waitForCompletion();
+            client.publish(topic, content.getBytes(), qos, true).waitForCompletion();
             System.out.println("Disconnected");
             System.out.println("Close client.");
-            sampleClient.close();
+            client.close();
             System.exit(0);
-        } catch (Exception e) {
-            LOG.error("Error occured", e);
 
-        }
-        /*
-        } catch(MqttException me) {
+        } catch (MqttException me) {
             System.out.println("reason "+me.getReasonCode());
             System.out.println("msg "+me.getMessage());
             System.out.println("loc "+me.getLocalizedMessage());
             System.out.println("cause "+me.getCause());
             System.out.println("excep "+me);
             me.printStackTrace();
+        } catch (Exception e) {
+            LOG.error("Error occured", e);
+
         }
     }
-    */
 
 }

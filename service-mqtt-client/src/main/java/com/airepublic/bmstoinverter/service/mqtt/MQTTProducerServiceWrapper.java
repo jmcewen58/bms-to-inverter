@@ -11,22 +11,37 @@
 package com.airepublic.bmstoinverter.service.mqtt;
 
 import java.io.IOException;
+import java.net.URI;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 
 import com.airepublic.bmstoinverter.core.service.IMQTTProducerService;
 
 /**
- * The implementation of the {@link IMQTTProducerService} using the ActiveMQ Artemis implementation.
+ * Wrapper to choose between multiple client types based on the port number.  Artemis (default port=61616) or MQTT (default port=1833, highest default is 16000)
  */
 public class MQTTProducerServiceWrapper implements IMQTTProducerService {
     private IMQTTProducerService impl = null;
-
-    public MQTTProducerServiceWrapper() {
+    private final static Logger LOG = LoggerFactory.getLogger(MQTTProducerServiceWrapper.class);
+public MQTTProducerServiceWrapper() {
 
     }
 
     @Override
     public MQTTProducerServiceWrapper connect(final String locator, final String address, final String username, final String password) throws IOException {
-        impl = new MQTTHAProducerService();
+        boolean isMqtt = false;
+        try {
+            URI uri = new URI(locator);
+            int port = uri.getPort();
+            isMqtt = (port<20000);
+        } catch (Exception e) {
+            LOG.error("Failed to parse locator string.  Will use default Artemis client.", e);
+        }
+
+        impl = (isMqtt)?new MQTTHAProducerService():new MQTTProducerService() {
+            
+        };
         try {
             impl.connect(locator, address, username, password);
         } catch (Exception e) {
