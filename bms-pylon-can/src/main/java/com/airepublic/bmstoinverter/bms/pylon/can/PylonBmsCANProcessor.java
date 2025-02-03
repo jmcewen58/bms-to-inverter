@@ -24,54 +24,106 @@ import com.airepublic.bmstoinverter.core.bms.data.Alarm;
 import com.airepublic.bmstoinverter.core.bms.data.BatteryPack;
 import com.airepublic.bmstoinverter.core.util.BitUtil;
 
+
 /**
  * The class to handle CAN messages from a Pylon {@link BMS}.
  */
 public class PylonBmsCANProcessor extends BMS {
     private final static Logger LOG = LoggerFactory.getLogger(PylonBmsCANProcessor.class);
     private final static int BATTERY_ID = 0;
+    private final ByteBuffer sendFrame = ByteBuffer.allocateDirect(16).order(ByteOrder.LITTLE_ENDIAN);
 
     @Override
     public void collectData(final Port port) {
+        boolean lastFrame = false;
+        int frameCounter = 0;
+        LOG.debug("Starting frame capture");
         try {
-            final BatteryPack pack = getBatteryPack(BATTERY_ID);
-            final ByteBuffer frame = port.receiveFrame();
-            final int frameId = frame.getInt();
-            final byte[] bytes = new byte[8];
-            frame.get(8, bytes);
-            final ByteBuffer data = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN);
+            final ByteBuffer sendFrame = prepareSendFrame();
 
-            switch (frameId) {
-                case 0x351:
-                    readChargeDischargeInfo(pack, data);
-                break;
-                case 0x355:
-                    readSOC(pack, data);
-                break;
-                case 0x356:
-                    readBatteryVoltage(pack, data);
-                break;
-                case 0x35C:
-                    requestChargeDischargeConfigChange(pack, data);
-                break;
-                case 0x370:
-                    readMinMaxTemperatureVoltage(pack, data);
-                break;
-                case 0x371:
-                    readTemperatureIds(pack, data);
-                break;
-                case 0x35E:
-                    readManufacturer(pack, data);
-                break;
-                case 0x359:
-                    readAlarms(pack, data);
-                break;
-            }
+            LOG.debug("SEND: {}", Port.printBuffer(sendFrame));
+            port.sendFrame(sendFrame);
+            do {
+                final BatteryPack pack = getBatteryPack(BATTERY_ID);
+                final ByteBuffer frame = port.receiveFrame();
+                final int frameId = frame.getInt();
+                final byte[] bytes = new byte[8];
+                frame.get(8, bytes);
+                final ByteBuffer data = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN);
+                LOG.debug("Frame: {} Data: {}", Integer.toHexString(frameId), Port.printBuffer(data));
+                frameCounter ++;
+
+                switch (frameId) {
+                    case 0x1580ff00:
+                        lastFrame = true;
+                    break;
+                    case 0x351:
+                        readChargeDischargeInfo(pack, data);
+                    break;
+                    case 0x355:
+                        readSOC(pack, data);
+                    break;
+                    case 0x356:
+                        readBatteryVoltage(pack, data);
+                    break;
+                    case 0x35C:
+                        requestChargeDischargeConfigChange(pack, data);
+                    break;
+                    case 0x370:
+                        readMinMaxTemperatureVoltage(pack, data);
+                    break;
+                    case 0x371:
+                        readTemperatureIds(pack, data);
+                    break;
+                    case 0x35E:
+                        readManufacturer(pack, data);
+                    break;
+                    case 0x359:
+                        readAlarms(pack, data);
+                    break;
+                    case 0x35a:
+                    break;
+                    case 0x35f:
+                        readPackCapacity(pack, data);
+                    break;
+                }
+                // putting in the frame counter just in case....
+            } while (!lastFrame && frameCounter <=20);
+            LOG.debug("End frame capture");
         } catch (final IOException e) {
             LOG.error("Error receiving frame!", e);
         }
     }
 
+
+   protected ByteBuffer prepareSendFrame() {
+        sendFrame.rewind();
+
+        byte[] data = new byte[] { 0, 0, 0, 0, 0, 0, 0, 0 };
+        sendFrame.putInt(0x305);
+
+        // header
+        sendFrame.put((byte) 0x08) // data length
+                .put((byte) 0) // flags
+                .putShort((short) 0); // skip 2 bytes
+
+        // data
+        sendFrame.put(data);
+
+        sendFrame.rewind();
+
+        return sendFrame;
+    }
+
+    // 0x35f
+    protected void readPackCapacity(final BatteryPack pack, final ByteBuffer data) {
+        pack.type = data.getChar();
+        //pack.softwareVersion = 
+        data.getChar();
+        pack.moduleRatedCapacityAh = data.getChar();
+
+        LOG.debug("\nCapacity \n\t{}", pack.moduleRatedCapacityAh);
+    }
 
     // 0x351
     protected void readChargeDischargeInfo(final BatteryPack pack, final ByteBuffer data) {
@@ -84,7 +136,7 @@ public class PylonBmsCANProcessor extends BMS {
         // Battery discharge voltage (0.1V) - uint_16
         pack.minPackVoltageLimit = data.getChar();
 
-        LOG.debug("\nMax Voltage \tMax Charge \tMax Discharge \tMin Voltage\n  {}\t\t{}\t\t{}\t\t", pack.maxPackVoltageLimit / 10f, pack.maxPackChargeCurrent / 10f, pack.maxPackDischargeCurrent / 10f, pack.minPackVoltageLimit / 10f);
+        LOG.debug("\nMax V \tMax Chg \tMax DisCh \tMin V\n  {}\t\t{}\t\t{}\t\t{}", pack.maxPackVoltageLimit / 10f, pack.maxPackChargeCurrent / 10f, pack.maxPackDischargeCurrent / 10f, pack.minPackVoltageLimit / 10f);
     }
 
 
@@ -94,6 +146,8 @@ public class PylonBmsCANProcessor extends BMS {
         pack.packSOC = data.getChar() * 10;
         // SOH (1%) - uint_16
         pack.packSOH = data.getChar() * 10;
+        // This is supposed to be finer grained, but BMS isn't providing extra data.
+        //pack.packSOC data.getChar() / 100;
 
         LOG.debug("\nSOC \tSOH\n{} \t{}", pack.packSOC / 10f, pack.packSOH / 10f);
     }
