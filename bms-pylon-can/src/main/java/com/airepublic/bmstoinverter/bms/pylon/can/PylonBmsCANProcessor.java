@@ -88,28 +88,14 @@ public class PylonBmsCANProcessor extends BMS {
     }
 
 
-    private static String toHexString(ByteBuffer buffer) {
-        StringBuilder sb = new StringBuilder();
-        buffer.mark();
-        for (int i = buffer.position(); i < buffer.limit(); i++) {
-            sb.append(String.format("%02X", buffer.get(i)));
-        }
-        buffer.reset();
-        return sb.toString();
-    }
-
     // 0x355
     protected void readSOC(final BatteryPack pack, final ByteBuffer data) {
-        LOG.warn(toHexString(data));
         // SOC (1%) - uint_16
-        int soc = data.getChar() * 10;
-        //pack.packSOC = data.getChar() * 10;
+        pack.packSOC = data.getChar() * 10;
         // SOH (1%) - uint_16
         pack.packSOH = data.getChar() * 10;
-        soc += data.getChar() / 100;
-        pack.packSOC = soc;
 
-        LOG.warn("\nSOC \tSOH\n{} \t{}", pack.packSOC / 10f, pack.packSOH / 10f);
+        LOG.debug("\nSOC \tSOH\n{} \t{}", pack.packSOC / 10f, pack.packSOH / 10f);
     }
 
 
